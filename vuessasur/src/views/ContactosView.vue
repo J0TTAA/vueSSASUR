@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 
 // 1. Importamos el componente de lista que creamos
-import ContactList from '../components/Contactos/ContactList.vue';
+import ContactList from '../components/contactos/ContactList.vue';
 // (No necesitamos importar FilterComponent, ya que la vista lo define en línea)
 // (No necesitamos importar ContactCard, ya que ContactList lo usa)
 
