@@ -15,9 +15,13 @@ import {
   listEspecialidades,
   getPatologiasPorEspecialidadId,
   createEspecialidad,
-  deletePatologia
+  deletePatologia,
+  listPatologias,
+  getSpecialtyAssignments,
+  syncSpecialtyPathologies
 } from '../services/criteriosService';
 import { normalizeText } from '../services/http'; // Asegúrate de que esta función exista y funcione como se espera
+import SpecialtyPathologyManager from '../components/criterios/SpecialtyPathologyManager.vue';
 
 // 3. Refs de estado
 const formData = ref({
@@ -41,6 +45,10 @@ const newPatologiaData = ref({ // Estado para el modal de creación de patologí
 });
 const allCriterios = ref([]); // Lista maestra de criterios (para la tabla y búsqueda)
 const filteredCriterios = ref([]); // Lista filtrada de criterios para mostrar en la tabla
+const catalogoPatologias = ref([]); // Catálogo completo de patologías disponibles
+const specialtyAssignments = ref({}); // Asignaciones especialidad ↔ patologías
+const assignmentsLoading = ref(false);
+const assignmentsSaving = ref(false);
 
 // Estado para el modal de administración de especialidades
 const openAdminEspModal = ref(false);
@@ -61,6 +69,8 @@ function extractText(value) {
   }
   return '';
 }
+
+const extractName = (value) => extractText(value);
 
 // 5. Lógica de negocio (Filtro de la tabla)
 const handleFilterChange = (key, value) => {
@@ -347,8 +357,55 @@ async function loadCriterios() {
 
 async function loadEspecialidades() {
   // Carga la lista de especialidades para el dropdown principal
-  especialidades.value = await listEspecialidades();
+  const data = await listEspecialidades();
+  especialidades.value = (data || []).map((esp) => ({
+    id: esp.id,
+    nombre: extractName(esp) || esp?.nombre || esp?.name || ''
+  }));
   console.log(`Carga de Especialidades: ${especialidades.value.length} items.`);
+}
+
+async function loadPatologiasCatalogo() {
+  const data = await listPatologias();
+  catalogoPatologias.value = (data || []).map((pat) => ({
+    id: pat.id,
+    nombre: extractName(pat) || pat?.nombre || pat?.name || ''
+  }));
+  console.log(`Carga de Patologías: ${catalogoPatologias.value.length} items.`);
+}
+
+async function loadSpecialtyAssignments() {
+  assignmentsLoading.value = true;
+  try {
+    const payload = await getSpecialtyAssignments();
+    const specialties = payload?.specialties ?? payload?.especialidades ?? [];
+    const pathologies = payload?.pathologies ?? payload?.patologias ?? [];
+    const assignments = payload?.assignments ?? {};
+
+    especialidades.value = specialties.map((esp) => ({
+      id: esp.id,
+      nombre: extractName(esp) || esp?.name || esp?.nombre || ''
+    }));
+
+    catalogoPatologias.value = pathologies.map((pat) => ({
+      id: pat.id,
+      nombre: extractName(pat) || pat?.name || pat?.nombre || ''
+    }));
+
+    specialtyAssignments.value = Object.fromEntries(
+      Object.entries(assignments).map(([key, value]) => [key, Array.isArray(value) ? value : []])
+    );
+  } catch (error) {
+    console.error('No se pudo cargar el gestor de especialidades:', error);
+    if (!especialidades.value.length) {
+      await loadEspecialidades();
+    }
+    if (!catalogoPatologias.value.length) {
+      await loadPatologiasCatalogo();
+    }
+  } finally {
+    assignmentsLoading.value = false;
+  }
 }
 
 async function loadInitialData() {
@@ -358,7 +415,9 @@ async function loadInitialData() {
     // Ejecuta ambas cargas en paralelo para eficiencia
     await Promise.all([
       loadCriterios(),
-      loadEspecialidades()
+      loadEspecialidades(),
+      loadPatologiasCatalogo(),
+      loadSpecialtyAssignments()
     ]);
     console.log("Carga inicial completada.");
   } catch (e) {
@@ -507,6 +566,87 @@ watch(() => filters.value.selectedPatologias, (arr) => {
      formData.value.patologia = listaDePatologias.find(p => p.id === patId) || null;
   }, 200);
 });
+
+// --- Gestor de especialidades/patologías ---
+const specialtyManagerSpecialties = computed(() => {
+  return especialidades.value.map((esp) => {
+    const id = esp.id ?? normalizeText(esp.nombre ?? esp.name ?? '');
+    const name = esp.nombre ?? esp.name ?? String(id);
+    return { id, name };
+  });
+});
+
+const specialtyManagerPathologies = computed(() => {
+  const map = new Map();
+
+  (catalogoPatologias.value || []).forEach((pat) => {
+    const id = pat.id ?? normalizeText(pat.nombre ?? pat.name ?? '');
+    const name = pat.nombre ?? pat.name ?? String(id);
+    if (id) {
+      map.set(id, { id, name });
+    }
+  });
+
+  allCriterios.value.forEach((criterio) => {
+    const id = criterio.patologia_id ?? normalizeText(criterio.patologia ?? '');
+    const name = criterio.patologia ?? String(id);
+    if (id && !map.has(id)) {
+      map.set(id, { id, name });
+    }
+  });
+
+  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+});
+
+const specialtyManagerAssignments = computed(() => {
+  const base = specialtyAssignments.value || {};
+  const clone = {};
+  Object.entries(base).forEach(([espId, items]) => {
+    clone[espId] = Array.isArray(items) ? [...new Set(items)] : [];
+  });
+
+  // Fallback: si no hay datos en base, derive desde criterios actuales
+  if (Object.keys(clone).length === 0) {
+    allCriterios.value.forEach((criterio) => {
+      const espId = criterio.especialidad_id ?? normalizeText(criterio.especialidad ?? '');
+      const patId = criterio.patologia_id ?? normalizeText(criterio.patologia ?? '');
+      if (!espId || !patId) return;
+      if (!clone[espId]) {
+        clone[espId] = [];
+      }
+      if (!clone[espId].includes(patId)) {
+        clone[espId].push(patId);
+      }
+    });
+  }
+
+  return clone;
+});
+
+const handleCreateSpecialtyFromManager = () => {
+  openAdminEspModal.value = true;
+};
+
+const handleSaveAssignments = (assignments) => {
+  assignmentsSaving.value = true;
+  syncSpecialtyPathologies(assignments)
+    .then((response) => {
+      const updated = response?.assignments ?? assignments;
+      specialtyAssignments.value = Object.fromEntries(
+        Object.entries(updated).map(([key, value]) => [key, Array.isArray(value) ? value : []])
+      );
+      alert('Asignaciones guardadas correctamente.');
+      // Recargar criterios para reflejar cualquier cambio en la tabla
+      loadCriterios();
+    })
+    .catch((error) => {
+      console.error('Error al guardar asignaciones:', error);
+      alert(error?.message || 'Error al sincronizar las asignaciones.');
+    })
+    .finally(() => {
+      assignmentsSaving.value = false;
+    });
+};
 </script>
 
 <template>
@@ -662,6 +802,18 @@ watch(() => filters.value.selectedPatologias, (arr) => {
         </v-card>
       </v-dialog>
 
+    </v-sheet>
+
+    <v-sheet class="mb-10">
+      <SpecialtyPathologyManager
+        :specialties="specialtyManagerSpecialties"
+        :pathologies="specialtyManagerPathologies"
+        :initial-assignments="specialtyManagerAssignments"
+        :loading="assignmentsLoading"
+        :saving="assignmentsSaving"
+        @create-specialty="handleCreateSpecialtyFromManager"
+        @save="handleSaveAssignments"
+      />
     </v-sheet>
 
     <!-- Sección de Búsqueda y Tabla -->

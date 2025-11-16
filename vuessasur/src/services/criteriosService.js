@@ -78,6 +78,51 @@ export async function getPatologiasPorEspecialidadId(especialidadId) {
 }
 
 /**
+ * 8. Obtiene la lista de TODAS las patologías
+ * Llama a: GET /api/patologias
+ */
+export async function listPatologias() {
+  try {
+    const payload = await http.get('/patologias');
+    return unwrapArrayPayload(payload);
+  } catch (error) {
+    console.error("Error al cargar patologías:", error);
+    return [];
+  }
+}
+
+/**
+ * 11. Obtiene datos combinados para el gestor de especialidades ↔ patologías
+ * Llama a: GET /api/especialidades/asignaciones
+ */
+export async function getSpecialtyAssignments() {
+  try {
+    const payload = await http.get('/especialidades/asignaciones');
+    return payload?.data ? payload.data : payload;
+  } catch (error) {
+    console.error('Error al cargar asignaciones de especialidades:', error);
+    throw error;
+  }
+}
+
+/**
+ * 12. Sincroniza las asignaciones especialidad ↔ patologías
+ * Llama a: POST /api/especialidades/sync-patologias
+ * Espera payload: { assignments: { [especialidadId]: [patologiaIds] } }
+ */
+export async function syncSpecialtyPathologies(assignments) {
+  try {
+    const payload = await http.post('/especialidades/sync-patologias', {
+      body: { assignments }
+    });
+    return payload?.data ? payload.data : payload;
+  } catch (error) {
+    console.error('Error al sincronizar patologías por especialidad:', error);
+    throw error;
+  }
+}
+
+/**
  * 8. Crea una NUEVA especialidad
  * Llama a: POST /api/especialidades
  */
