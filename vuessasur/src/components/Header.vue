@@ -1,16 +1,8 @@
 <template>
   <v-app-bar color="white" flat style="border-bottom: 1px solid #e0e0e0;">
 
-    <v-img
-      src="https://www.ssbiobio.cl/public/images/logos/logo_gob_jpg.jpg"
-      alt="Logo"
-      max-width="100"
-      height="auto"
-      class="ml-4 mr-2"
-    />
-
-    <v-toolbar-title class="flex-grow-1" style="color: black;">
-      Servicio de Salud ARAUCANIA SUR
+    <v-toolbar-title class="flex-grow-1 ml-4" style="color: black;">
+      Servicio de Salud Araucanía Gobierno de Chile
     </v-toolbar-title>
 
     <v-spacer></v-spacer>
